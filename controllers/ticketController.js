@@ -48,23 +48,25 @@ const getTicketById = async (req, res) => {
     const { id } = req.params;
 
     const [rows] = await pool.query(
-      `SELECT 
-        t.id,
-        t.user_id,
-        t.train_id,
-        t.source,
-        t.destination,
-        t.travel_date,
-        t.seat_number,
-        t.status,
-        tr.name AS train_name,
-        tr.base_fare AS fare,
-        t.created_at
-      FROM tickets t
-      JOIN trains tr ON t.train_id = tr.id
-      WHERE t.id = ?`,
-      [id]
-    );
+  `SELECT 
+      t.id,
+      t.user_id,
+      t.train_id,
+      t.source,
+      t.destination,
+      t.travel_date,
+      t.seat_number,
+      t.status,
+      tr.name AS train_name,
+      tr.base_fare AS fare,
+      u.name AS passenger_name      -- 🔥 ADD THIS
+   FROM tickets t
+   JOIN trains tr ON t.train_id = tr.id
+   JOIN users u ON t.user_id = u.id   -- 🔥 ADD THIS
+   WHERE t.id = ?`,
+  [id]
+);
+
 
     if (rows.length === 0) {
       return res.status(404).json({ message: "Ticket not found" });
