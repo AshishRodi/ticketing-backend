@@ -14,6 +14,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/payment", paymentRoutes);
 
+const trainRoutes = require("./routes/trainRoutes");
+app.use("/api/trains", trainRoutes);
+
 
 app.listen(process.env.PORT || 5000, () => {
   console.log("Server running on port " + (process.env.PORT || 5000));
