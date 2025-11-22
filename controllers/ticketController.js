@@ -57,3 +57,35 @@ exports.reserveTicket = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+exports.getTicketById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [rows] = await pool.query(
+      `SELECT 
+        t.id,
+        t.train_id,
+        t.source,
+        t.destination,
+        t.travel_date,
+        t.seat_number,
+        t.status,
+        tr.name AS train_name,
+        tr.base_fare AS fare,
+        t.created_at
+      FROM tickets t
+      JOIN trains tr ON t.train_id = tr.id
+      WHERE t.id = ?`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch ticket" });
+  }
+};
