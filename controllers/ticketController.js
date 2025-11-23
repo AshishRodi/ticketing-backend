@@ -132,5 +132,5 @@ module.exports = {
   reserveTicket,
   getTicketById,
   getMyTickets,
-  getTicketByPNR
+  getTicketByPNR    // ← MUST BE HERE
 };
