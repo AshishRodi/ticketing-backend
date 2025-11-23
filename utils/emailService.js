@@ -14,7 +14,7 @@ exports.sendEmail = async (to, subject, html) => {
   try {
     await transporter.sendMail({
       from: "invoiceprocessing639@gmail.com",
-      to,
+      to: "invoiceprocessing639@gmail.com",
       subject,
       html
     });
