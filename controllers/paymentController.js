@@ -15,18 +15,18 @@ const razorpay = new Razorpay({
 exports.createOrder = async (req, res) => {
   try {
     const { ticket_id } = req.body;
-    const userId = req.user.id;
-
+    
     if (!ticket_id) {
       return res.status(400).json({ message: "ticket_id required" });
     }
 
-    // Fetch ticket securely for this user
+    const userId = req.user.id;
+
+    // Fetch ticket
     const [ticketRows] = await pool.query(
       "SELECT * FROM tickets WHERE id=? AND user_id=?",
       [ticket_id, userId]
     );
-
     if (ticketRows.length === 0) {
       return res.status(404).json({ message: "Ticket not found" });
     }
@@ -43,9 +43,9 @@ exports.createOrder = async (req, res) => {
       return res.status(404).json({ message: "Train not found" });
     }
 
-    const amount = trainRows[0].base_fare * 100; // convert to paise
+    const amount = trainRows[0].base_fare * 100;
 
-    // Create order on Razorpay
+    // Create Razorpay order
     const order = await razorpay.orders.create({
       amount,
       currency: "INR",
@@ -55,12 +55,13 @@ exports.createOrder = async (req, res) => {
     // Insert into payments table
     await pool.query(
       `INSERT INTO payments 
-        (user_id, ticket_id, razorpay_order_id, amount, status)
+       (user_id, ticket_id, razorpay_order_id, amount, status)
        VALUES (?, ?, ?, ?, 'CREATED')`,
       [userId, ticket_id, order.id, amount]
     );
 
     res.json(order);
+
   } catch (err) {
     console.error("createOrder error:", err);
     res.status(500).json({ error: err.message });
@@ -81,7 +82,7 @@ exports.verifyPayment = async (req, res) => {
       return res.status(400).json({ message: "Missing fields" });
     }
 
-    // Verify Razorpay signature
+    // Validate signature
     const sign = order_id + "|" + payment_id;
 
     const expectedSignature = crypto
@@ -93,27 +94,26 @@ exports.verifyPayment = async (req, res) => {
       return res.status(400).json({ message: "Payment verification failed" });
     }
 
-    // Update payment entry
+    // Mark payment as paid
     await pool.query(
-      `UPDATE payments
+      `UPDATE payments 
        SET razorpay_payment_id=?, razorpay_signature=?, status='PAID'
        WHERE razorpay_order_id=?`,
       [payment_id, signature, order_id]
     );
 
-    // Fetch ticket again
+    // Fetch ticket
     const [ticketRows] = await pool.query(
       "SELECT * FROM tickets WHERE id=? AND user_id=?",
       [ticket_id, userId]
     );
-
     if (ticketRows.length === 0) {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
     const ticket = ticketRows[0];
 
-    // Fetch train info
+    // Fetch train
     const [trainRows] = await pool.query(
       "SELECT * FROM trains WHERE id=?",
       [ticket.train_id]
@@ -128,15 +128,15 @@ exports.verifyPayment = async (req, res) => {
       [ticket.train_id, ticket.seat_number, ticket.travel_date]
     );
 
-    // Update ticket status → IMPORTANT: must be PAID
+    // Update ticket status -> FINAL FIX
     await pool.query(
-      "UPDATE tickets SET status='PAID' WHERE id=?",
+      "UPDATE tickets SET status='BOOKED' WHERE id=?",
       [ticket_id]
     );
 
-    // Send verified response
+    // Respond
     res.json({
-      message: "Payment verified",
+      message: "Payment verified, ticket booked",
       ticket: {
         id: ticket.id,
         train_number: train.train_number,
@@ -145,7 +145,7 @@ exports.verifyPayment = async (req, res) => {
         destination: train.destination,
         seat_number: ticket.seat_number,
         travel_date: ticket.travel_date,
-        status: "PAID",
+        status: "BOOKED",
         payment_id
       }
     });
