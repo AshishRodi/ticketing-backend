@@ -80,6 +80,41 @@ const getTicketById = async (req, res) => {
   }
 };
 
+// ----------------- Get All Tickets for Logged-In User -----------------
+const getMyTickets = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [rows] = await pool.query(
+      `SELECT 
+          t.id,
+          t.train_id,
+          t.travel_date,
+          t.seat_number,
+          t.status,
+          tr.name AS train_name,
+          tr.train_number,
+          tr.source,
+          tr.destination,
+          tr.base_fare,
+          u.name AS passenger_name
+       FROM tickets t
+       JOIN trains tr ON t.train_id = tr.id
+       JOIN users u ON t.user_id = u.id
+       WHERE t.user_id = ?
+       ORDER BY t.id DESC`,
+      [userId]
+    );
+
+    res.json(rows);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch user tickets" });
+  }
+};
+
+
 // ----------------- EXPORTS -----------------
 module.exports = {
   reserveTicket,
