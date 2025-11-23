@@ -2,12 +2,16 @@ const pool = require("../config/db");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 
+// Initialize Razorpay
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-// CREATE ORDER -----------------------------------------------------
+
+// ------------------------------------------------------------
+// CREATE ORDER
+// ------------------------------------------------------------
 exports.createOrder = async (req, res) => {
   try {
     const { ticket_id } = req.body;
@@ -17,32 +21,38 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: "ticket_id required" });
     }
 
+    // Fetch ticket securely for this user
     const [ticketRows] = await pool.query(
       "SELECT * FROM tickets WHERE id=? AND user_id=?",
       [ticket_id, userId]
     );
+
     if (ticketRows.length === 0) {
-      return res.status(400).json({ message: "Ticket not found for user" });
+      return res.status(404).json({ message: "Ticket not found" });
     }
 
     const ticket = ticketRows[0];
 
+    // Fetch fare from train table
     const [trainRows] = await pool.query(
       "SELECT base_fare FROM trains WHERE id=?",
       [ticket.train_id]
     );
+
     if (trainRows.length === 0) {
-      return res.status(400).json({ message: "Train not found" });
+      return res.status(404).json({ message: "Train not found" });
     }
 
-    const amount = trainRows[0].base_fare * 100;
+    const amount = trainRows[0].base_fare * 100; // convert to paise
 
+    // Create order on Razorpay
     const order = await razorpay.orders.create({
       amount,
       currency: "INR",
       receipt: "receipt_" + ticket_id
     });
 
+    // Insert into payments table
     await pool.query(
       `INSERT INTO payments 
         (user_id, ticket_id, razorpay_order_id, amount, status)
@@ -57,7 +67,11 @@ exports.createOrder = async (req, res) => {
   }
 };
 
-// VERIFY PAYMENT -----------------------------------------------------
+
+
+// ------------------------------------------------------------
+// VERIFY PAYMENT
+// ------------------------------------------------------------
 exports.verifyPayment = async (req, res) => {
   try {
     const { order_id, payment_id, signature, ticket_id } = req.body;
@@ -67,7 +81,9 @@ exports.verifyPayment = async (req, res) => {
       return res.status(400).json({ message: "Missing fields" });
     }
 
+    // Verify Razorpay signature
     const sign = order_id + "|" + payment_id;
+
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(sign)
@@ -77,43 +93,50 @@ exports.verifyPayment = async (req, res) => {
       return res.status(400).json({ message: "Payment verification failed" });
     }
 
+    // Update payment entry
     await pool.query(
-      `UPDATE payments 
-         SET razorpay_payment_id=?, razorpay_signature=?, status='PAID'
+      `UPDATE payments
+       SET razorpay_payment_id=?, razorpay_signature=?, status='PAID'
        WHERE razorpay_order_id=?`,
       [payment_id, signature, order_id]
     );
 
+    // Fetch ticket again
     const [ticketRows] = await pool.query(
       "SELECT * FROM tickets WHERE id=? AND user_id=?",
       [ticket_id, userId]
     );
+
     if (ticketRows.length === 0) {
-      return res.status(400).json({ message: "Ticket not found" });
+      return res.status(404).json({ message: "Ticket not found" });
     }
 
     const ticket = ticketRows[0];
 
+    // Fetch train info
     const [trainRows] = await pool.query(
       "SELECT * FROM trains WHERE id=?",
       [ticket.train_id]
     );
+
     const train = trainRows[0];
 
+    // Mark seat as booked
     await pool.query(
-      `UPDATE seats 
-       SET is_booked = 1 
+      `UPDATE seats SET is_booked=1
        WHERE train_id=? AND seat_number=? AND travel_date=?`,
       [ticket.train_id, ticket.seat_number, ticket.travel_date]
     );
 
+    // Update ticket status → IMPORTANT: must be PAID
     await pool.query(
-      "UPDATE tickets SET status='BOOKED' WHERE id=?",
+      "UPDATE tickets SET status='PAID' WHERE id=?",
       [ticket_id]
     );
 
+    // Send verified response
     res.json({
-      message: "Payment verified & ticket booked",
+      message: "Payment verified",
       ticket: {
         id: ticket.id,
         train_number: train.train_number,
@@ -122,10 +145,11 @@ exports.verifyPayment = async (req, res) => {
         destination: train.destination,
         seat_number: ticket.seat_number,
         travel_date: ticket.travel_date,
-        status: "BOOKED",
+        status: "PAID",
         payment_id
       }
     });
+
   } catch (err) {
     console.error("verifyPayment error:", err);
     res.status(500).json({ error: err.message });
