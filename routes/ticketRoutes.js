@@ -7,6 +7,7 @@ const {
 } = require("../controllers/ticketController");
 
 const auth = require("../middleware/authMiddleware");
+router.post("/:id/cancel", auth, cancelTicket);
 
 router.post("/reserve", auth, reserveTicket);
 router.get("/my", auth, getMyTickets);
