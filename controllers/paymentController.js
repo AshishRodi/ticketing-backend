@@ -84,7 +84,7 @@ exports.verifyPayment = async (req, res) => {
     // Mark payment as PAID
     await pool.query(
       `UPDATE payments 
-       SET razorpay_payment_id=?, razorpay_signature=?, status='PAID'
+       SET razorpay_payment_id=?, razorpay_signature=?, status='BOOKED'
        WHERE razorpay_order_id=?`,
       [payment_id, signature, order_id]
     );
@@ -112,7 +112,7 @@ exports.verifyPayment = async (req, res) => {
 
     // Mark ticket PAID
     await pool.query(
-      "UPDATE tickets SET status='PAID' WHERE id=?",
+      "UPDATE tickets SET status='BOOKED' WHERE id=?",
       [ticket_id]
     );
 
@@ -155,7 +155,7 @@ exports.verifyPayment = async (req, res) => {
         destination: train.destination,
         seat_number: ticket.seat_number,
         travel_date: ticket.travel_date,
-        status: "PAID",
+        status: "BOOKED",
         payment_id,
       },
     });
