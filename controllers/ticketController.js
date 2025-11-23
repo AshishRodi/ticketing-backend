@@ -15,9 +15,9 @@ const reserveTicket = async (req, res) => {
     const { train_id, seat_number, travel_date } = req.body;
     const userId = req.user.id;
 
-    // Fetch source & destination from train
+    // Fetch train details
     const [[train]] = await pool.query(
-      "SELECT name, source, destination, base_fare FROM trains WHERE id = ?",
+      "SELECT source, destination, base_fare FROM trains WHERE id = ?",
       [train_id]
     );
 
@@ -25,11 +25,12 @@ const reserveTicket = async (req, res) => {
       return res.status(404).json({ message: "Train not found" });
     }
 
-    const pnr = generatePNR();
+    // Generate PNR
+    const pnr = Math.floor(1000000000 + Math.random() * 9000000000).toString();
 
-    // Insert ticket
+    // Insert ticket with PNR included
     const [result] = await pool.query(
-      `INSERT INTO tickets 
+      `INSERT INTO tickets
         (user_id, train_id, source, destination, travel_date, seat_number, status, pnr)
        VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)`,
       [
@@ -54,6 +55,7 @@ const reserveTicket = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // ------------------------------------------------------------
 // GET TICKET BY ID
