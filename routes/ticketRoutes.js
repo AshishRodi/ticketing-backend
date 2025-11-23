@@ -5,6 +5,8 @@ const auth = require("../middleware/authMiddleware");
 
 router.post("/reserve", auth, reserveTicket);
 router.get("/my", auth, getMyTickets);
+router.get("/pnr/:pnr", getTicketByPNR);
+
 router.get("/:id", auth, getTicketById);
 
 module.exports = router;

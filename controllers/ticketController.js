@@ -91,9 +91,46 @@ const getMyTickets = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+const getTicketByPNR = async (req, res) => {
+  try {
+    const { pnr } = req.params;
+
+    const [rows] = await pool.query(
+      `SELECT 
+          t.id,
+          t.pnr,
+          t.train_id,
+          t.source,
+          t.destination,
+          t.travel_date,
+          t.seat_number,
+          t.status,
+          tr.name AS train_name,
+          tr.train_number,
+          tr.base_fare,
+          u.name AS passenger_name
+       FROM tickets t
+       JOIN trains tr ON t.train_id = tr.id
+       JOIN users u ON t.user_id = u.id
+       WHERE t.pnr = ?`,
+      [pnr]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "PNR not found" });
+    }
+
+    res.json(rows[0]);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to search PNR" });
+  }
+};
 
 module.exports = {
   reserveTicket,
   getTicketById,
-  getMyTickets
+  getMyTickets,
+  getTicketByPNR
 };
