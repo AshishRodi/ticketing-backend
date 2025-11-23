@@ -97,7 +97,7 @@ exports.verifyPayment = async (req, res) => {
     // Mark payment as paid
     await pool.query(
       `UPDATE payments 
-       SET razorpay_payment_id=?, razorpay_signature=?, status='PAID'
+       SET razorpay_payment_id=?, razorpay_signature=?, status='BOOKED'
        WHERE razorpay_order_id=?`,
       [payment_id, signature, order_id]
     );
