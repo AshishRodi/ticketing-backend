@@ -127,10 +127,62 @@ const getTicketByPNR = async (req, res) => {
     res.status(500).json({ error: "Failed to search PNR" });
   }
 };
+// controllers/ticketController.js (append)
+
+const cancelTicket = async (req, res) => {
+  try {
+    const ticketId = req.params.id;
+    const userId = req.user.id;
+
+    // Fetch ticket
+    const [rows] = await pool.query("SELECT * FROM tickets WHERE id = ? AND user_id = ?", [ticketId, userId]);
+    if (rows.length === 0) return res.status(404).json({ message: "Ticket not found" });
+
+    const ticket = rows[0];
+
+    // Only allow cancel for specific statuses
+    if (ticket.status === "CANCELLED") return res.status(400).json({ message: "Ticket already cancelled" });
+    if (!["PAID","BOOKED","PENDING"].includes(ticket.status)) {
+      return res.status(400).json({ message: "Ticket cannot be cancelled" });
+    }
+
+    // Optional: enforce cancellation window, e.g.
+    // const travelDate = new Date(ticket.travel_date);
+    // if (/* within 1 hour of departure */) return res.status(400).json({ message: "Cancellation window closed" });
+
+    // Free seat (if it was booked)
+    await pool.query(
+      "UPDATE seats SET is_booked = 0 WHERE train_id = ? AND seat_number = ? AND travel_date = ?",
+      [ticket.train_id, ticket.seat_number, ticket.travel_date]
+    );
+
+    // Update ticket status
+    await pool.query("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?", [ticketId]);
+
+    // Optionally insert into cancellations table (audit)
+    // await pool.query("INSERT INTO cancellations (ticket_id, user_id, created_at) VALUES (?, ?, NOW())", [ticketId, userId]);
+
+    // If you do payment refunds, trigger refund flow here (not included)
+
+    res.json({ message: "Ticket cancelled" });
+  } catch (err) {
+    console.error("cancelTicket error:", err);
+    res.status(500).json({ message: "Failed to cancel ticket" });
+  }
+};
 
 module.exports = {
+  // existing exports...
   reserveTicket,
   getTicketById,
   getMyTickets,
-  getTicketByPNR    // ← MUST BE HERE
+  getTicketByPNR,
+  cancelTicket, // add this
 };
+
+// module.exports = {
+//   reserveTicket,
+//   getTicketById,
+//   getMyTickets,
+//   getTicketByPNR    // ← MUST BE HERE
+// };
