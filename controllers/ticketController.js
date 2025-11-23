@@ -17,7 +17,7 @@ const reserveTicket = async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO tickets
-        (user_id, train_id, source, destination, travel_date, seat_number, status, pnr)
+          (user_id, train_id, source, destination, travel_date, seat_number, status, pnr)
        VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)`,
       [
         userId,
@@ -31,14 +31,13 @@ const reserveTicket = async (req, res) => {
     );
 
     res.json({ message: "Ticket reserved", ticket_id: result.insertId, pnr });
-
   } catch (err) {
     console.error("reserveTicket error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// ----------------- Get Ticket By ID -----------------
+// ----------------- Get Ticket by ID -----------------
 const getTicketById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -59,7 +58,6 @@ const getTicketById = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ message: "Ticket not found" });
 
     res.json(rows[0]);
-
   } catch (err) {
     console.error("getTicketById error:", err);
     res.status(500).json({ error: err.message });
@@ -85,12 +83,13 @@ const getMyTickets = async (req, res) => {
     );
 
     res.json(rows);
-
   } catch (err) {
     console.error("getMyTickets error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+// ----------------- Get Ticket by PNR -----------------
 const getTicketByPNR = async (req, res) => {
   try {
     const { pnr } = req.params;
@@ -121,48 +120,43 @@ const getTicketByPNR = async (req, res) => {
     }
 
     res.json(rows[0]);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to search PNR" });
   }
 };
-// controllers/ticketController.js (append)
 
+// ----------------- Cancel Ticket -----------------
 const cancelTicket = async (req, res) => {
   try {
     const ticketId = req.params.id;
     const userId = req.user.id;
 
-    // Fetch ticket
-    const [rows] = await pool.query("SELECT * FROM tickets WHERE id = ? AND user_id = ?", [ticketId, userId]);
-    if (rows.length === 0) return res.status(404).json({ message: "Ticket not found" });
+    const [rows] = await pool.query(
+      "SELECT * FROM tickets WHERE id = ? AND user_id = ?",
+      [ticketId, userId]
+    );
+
+    if (rows.length === 0)
+      return res.status(404).json({ message: "Ticket not found" });
 
     const ticket = rows[0];
 
-    // Only allow cancel for specific statuses
-    if (ticket.status === "CANCELLED") return res.status(400).json({ message: "Ticket already cancelled" });
-    if (!["PAID","BOOKED","PENDING"].includes(ticket.status)) {
+    if (ticket.status === "CANCELLED")
+      return res.status(400).json({ message: "Ticket already cancelled" });
+
+    if (!["PAID", "BOOKED", "PENDING"].includes(ticket.status)) {
       return res.status(400).json({ message: "Ticket cannot be cancelled" });
     }
 
-    // Optional: enforce cancellation window, e.g.
-    // const travelDate = new Date(ticket.travel_date);
-    // if (/* within 1 hour of departure */) return res.status(400).json({ message: "Cancellation window closed" });
-
-    // Free seat (if it was booked)
     await pool.query(
       "UPDATE seats SET is_booked = 0 WHERE train_id = ? AND seat_number = ? AND travel_date = ?",
       [ticket.train_id, ticket.seat_number, ticket.travel_date]
     );
 
-    // Update ticket status
-    await pool.query("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?", [ticketId]);
-
-    // Optionally insert into cancellations table (audit)
-    // await pool.query("INSERT INTO cancellations (ticket_id, user_id, created_at) VALUES (?, ?, NOW())", [ticketId, userId]);
-
-    // If you do payment refunds, trigger refund flow here (not included)
+    await pool.query("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?", [
+      ticketId,
+    ]);
 
     res.json({ message: "Ticket cancelled" });
   } catch (err) {
@@ -172,17 +166,9 @@ const cancelTicket = async (req, res) => {
 };
 
 module.exports = {
-  // existing exports...
   reserveTicket,
   getTicketById,
   getMyTickets,
   getTicketByPNR,
-  cancelTicket, // add this
+  cancelTicket,
 };
-
-// module.exports = {
-//   reserveTicket,
-//   getTicketById,
-//   getMyTickets,
-//   getTicketByPNR    // ← MUST BE HERE
-// };

@@ -3,15 +3,18 @@ const {
   reserveTicket,
   getTicketById,
   getMyTickets,
-  getTicketByPNR
+  getTicketByPNR,
+  cancelTicket
 } = require("../controllers/ticketController");
 
 const auth = require("../middleware/authMiddleware");
-router.post("/:id/cancel", auth, cancelTicket);
 
 router.post("/reserve", auth, reserveTicket);
 router.get("/my", auth, getMyTickets);
-router.get("/pnr/:pnr", getTicketByPNR);   // PNR SEARCH ROUTE
+
+router.post("/:id/cancel", auth, cancelTicket);   // FIXED: must come AFTER imports
+
+router.get("/pnr/:pnr", getTicketByPNR);
 router.get("/:id", auth, getTicketById);
 
 module.exports = router;
