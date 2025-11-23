@@ -47,29 +47,30 @@ const getTicketById = async (req, res) => {
 
     const [rows] = await pool.query(
       `SELECT 
-          t.id,
-          t.user_id,
-          t.train_id,
-          t.source,
-          t.destination,
-          t.travel_date,
-          t.seat_number,
-          t.status,
-          tr.name AS train_name,
-          tr.base_fare AS fare,
-          u.name AS passenger_name
-       FROM tickets t
-       JOIN trains tr ON t.train_id = tr.id
-       JOIN users u ON t.user_id = u.id
-       WHERE t.id = ?`,
+        t.id,
+        t.user_id,
+        t.train_id,
+        DATE_FORMAT(t.travel_date, '%Y-%m-%d') AS travel_date,
+        t.source,
+        t.destination,
+        t.seat_number,
+        t.status,
+        tr.name AS train_name,
+        tr.base_fare AS fare,
+        u.name AS passenger_name
+      FROM tickets t
+      JOIN trains tr ON t.train_id = tr.id
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = ?`,
       [id]
     );
 
-    if (rows.length === 0)
+    if (rows.length === 0) {
       return res.status(404).json({ message: "Ticket not found" });
+    }
 
     res.json(rows[0]);
-    
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch ticket" });
@@ -85,7 +86,7 @@ const getMyTickets = async (req, res) => {
       `SELECT 
           t.id,
           t.train_id,
-          t.travel_date,
+          DATE_FORMAT(t.travel_date, '%Y-%m-%d') AS travel_date,
           t.seat_number,
           t.status,
           tr.name AS train_name,
@@ -110,9 +111,53 @@ const getMyTickets = async (req, res) => {
   }
 };
 
+// ----------------- Cancel Ticket -----------------
+const cancelTicket = async (req, res) => {
+  try {
+    const ticketId = req.params.id;
+    const userId = req.user.id;
+
+    const [[ticket]] = await pool.query(
+      "SELECT * FROM tickets WHERE id=? AND user_id=?",
+      [ticketId, userId]
+    );
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    if (ticket.status === "CANCELLED") {
+      return res.status(400).json({ message: "Ticket already cancelled" });
+    }
+
+    if (ticket.status !== "BOOKED") {
+      return res.status(400).json({ message: "Only booked tickets can be cancelled" });
+    }
+
+    await pool.query(
+      `UPDATE seats 
+       SET is_booked=0 
+       WHERE train_id=? AND seat_number=? AND travel_date=?`,
+      [ticket.train_id, ticket.seat_number, ticket.travel_date]
+    );
+
+    await pool.query(
+      "UPDATE tickets SET status='CANCELLED' WHERE id=?",
+      [ticketId]
+    );
+
+    res.json({ message: "Ticket cancelled successfully" });
+
+  } catch (err) {
+    console.error("cancelTicket error:", err);
+    res.status(500).json({ error: "Failed to cancel ticket" });
+  }
+};
+
 // ----------------- EXPORTS -----------------
 module.exports = {
   reserveTicket,
   getTicketById,
   getMyTickets,
+  cancelTicket
 };
