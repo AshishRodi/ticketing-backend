@@ -131,9 +131,84 @@ const getMyTickets = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch user tickets" });
   }
 };
+const getTicketByPNR = async (req, res) => {
+  try {
+    const { pnr } = req.params;
 
+    const [rows] = await pool.query(
+      `SELECT 
+          t.id,
+          t.pnr,
+          t.train_id,
+          t.source,
+          t.destination,
+          t.travel_date,
+          t.seat_number,
+          t.status,
+          tr.name AS train_name,
+          tr.train_number,
+          tr.base_fare,
+          u.name AS passenger_name
+       FROM tickets t
+       JOIN trains tr ON t.train_id = tr.id
+       JOIN users u ON t.user_id = u.id
+       WHERE t.pnr = ?`,
+      [pnr]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "PNR not found" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to search PNR" });
+  }
+};
+
+// ----------------- Cancel Ticket -----------------
+const cancelTicket = async (req, res) => {
+  try {
+    const ticketId = req.params.id;
+    const userId = req.user.id;
+
+    const [rows] = await pool.query(
+      "SELECT * FROM tickets WHERE id = ? AND user_id = ?",
+      [ticketId, userId]
+    );
+
+    if (rows.length === 0)
+      return res.status(404).json({ message: "Ticket not found" });
+
+    const ticket = rows[0];
+
+    if (ticket.status === "CANCELLED")
+      return res.status(400).json({ message: "Ticket already cancelled" });
+
+    if (!["PAID", "BOOKED", "PENDING"].includes(ticket.status)) {
+      return res.status(400).json({ message: "Ticket cannot be cancelled" });
+    }
+
+    await pool.query(
+      "UPDATE seats SET is_booked = 0 WHERE train_id = ? AND seat_number = ? AND travel_date = ?",
+      [ticket.train_id, ticket.seat_number, ticket.travel_date]
+    );
+
+    await pool.query("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?", [
+      ticketId,
+    ]);
+
+    res.json({ message: "Ticket cancelled" });
+  } catch (err) {
+    console.error("cancelTicket error:", err);
+    res.status(500).json({ message: "Failed to cancel ticket" });
+  }
+};
 module.exports = {
   reserveTicket,
   getTicketById,
-  getMyTickets
+  getMyTickets,
+  getTicketByPNR,
+  cancelTicket
 };
