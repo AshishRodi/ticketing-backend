@@ -1,79 +1,122 @@
 const pool = require("../config/db");
 
-// ----------------- Reserve Ticket -----------------
+// Reserve a seat (atomic lock + insert PENDING ticket)
+// POST /api/tickets/reserve
 const reserveTicket = async (req, res) => {
   try {
     const { train_id, seat_number, travel_date } = req.body;
     const userId = req.user.id;
 
-    const [[train]] = await pool.query(
-      "SELECT source, destination, base_fare FROM trains WHERE id = ?",
-      [train_id]
+    if (!train_id || !seat_number || !travel_date) {
+      return res.status(400).json({ message: "train_id, seat_number and travel_date required" });
+    }
+
+    // 1) Ensure seat exists for that date (create if missing)
+    // you may reuse ensureSeatsForDate from trainController or rely on existing insertion step
+    // For safety: try to lock only if seat exists (otherwise fail)
+    // Attempt atomic lock: only if not booked and not locked
+    const lockDurationMinutes = 15; // changeable
+    const [lockResult] = await pool.query(
+      `UPDATE seats
+       SET is_locked = 1, locked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE)
+       WHERE train_id = ? AND seat_number = ? AND travel_date = ? AND is_booked = 0 AND (is_locked = 0 OR locked_until < NOW())`,
+      [lockDurationMinutes, train_id, seat_number, travel_date]
     );
 
-    if (!train) return res.status(404).json({ message: "Train not found" });
+    if (lockResult.affectedRows === 0) {
+      // somebody else already booked/locked it
+      return res.status(409).json({ message: "Seat is unavailable (booked or locked by another user)" });
+    }
 
-    const pnr = Math.floor(1000000000 + Math.random() * 9000000000).toString();
+    // 2) insert PENDING ticket linked to this user
+    const [trainRows] = await pool.query("SELECT source, destination, base_fare FROM trains WHERE id = ?", [train_id]);
+    const train = trainRows[0];
+    if (!train) {
+      // restore lock (release) — best effort
+      await pool.query("UPDATE seats SET is_locked = 0, locked_until = NULL WHERE train_id=? AND seat_number=? AND travel_date=?", [train_id, seat_number, travel_date]);
+      return res.status(404).json({ message: "Train not found" });
+    }
 
     const [result] = await pool.query(
       `INSERT INTO tickets
-          (user_id, train_id, source, destination, travel_date, seat_number, status, pnr)
+        (user_id, train_id, source, destination, travel_date, seat_number, status, fare)
        VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)`,
-      [
-        userId,
-        train_id,
-        train.source,
-        train.destination,
-        travel_date,
-        seat_number,
-        pnr
-      ]
+      [userId, train_id, train.source, train.destination, travel_date, seat_number, train.base_fare]
     );
 
-    res.json({ message: "Ticket reserved", ticket_id: result.insertId, pnr });
+    // Return ticket id and locked_until so client can show timeout
+    const [[seatRow]] = await pool.query(
+      "SELECT locked_until FROM seats WHERE train_id=? AND seat_number=? AND travel_date=?",
+      [train_id, seat_number, travel_date]
+    );
+
+    res.json({
+      message: "Seat locked, ticket created",
+      ticket_id: result.insertId,
+      locked_until: seatRow.locked_until
+    });
+
   } catch (err) {
     console.error("reserveTicket error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// ----------------- Get Ticket by ID -----------------
+// Get ticket by id
 const getTicketById = async (req, res) => {
   try {
     const { id } = req.params;
 
     const [rows] = await pool.query(
       `SELECT 
-        t.id, t.user_id, t.train_id, t.source, t.destination,
-        t.travel_date, t.seat_number, t.status, t.pnr,
-        tr.name AS train_name, tr.base_fare AS fare,
-        u.name AS passenger_name
-       FROM tickets t
-       JOIN trains tr ON t.train_id = tr.id
-       JOIN users u ON t.user_id = u.id
-       WHERE t.id = ?`,
+        t.id,
+        t.user_id,
+        t.train_id,
+        t.source,
+        t.destination,
+        t.travel_date,
+        t.seat_number,
+        t.status,
+        tr.name AS train_name,
+        tr.base_fare AS fare,
+        u.name AS passenger_name,
+        t.pnr
+      FROM tickets t
+      JOIN trains tr ON t.train_id = tr.id
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = ?`,
       [id]
     );
 
-    if (rows.length === 0) return res.status(404).json({ message: "Ticket not found" });
+    if (rows.length === 0)
+      return res.status(404).json({ message: "Ticket not found" });
 
     res.json(rows[0]);
   } catch (err) {
     console.error("getTicketById error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Failed to fetch ticket" });
   }
 };
 
-// ----------------- Get User Tickets -----------------
+// Get all tickets for logged in user
 const getMyTickets = async (req, res) => {
   try {
     const userId = req.user.id;
 
     const [rows] = await pool.query(
       `SELECT 
-        t.id, t.train_id, t.travel_date, t.seat_number, t.status, t.pnr,
-        tr.name AS train_name, tr.train_number, tr.source, tr.destination, tr.base_fare,
-        u.name AS passenger_name
+          t.id,
+          t.pnr,
+          t.train_id,
+          t.travel_date,
+          t.seat_number,
+          t.status,
+          tr.name AS train_name,
+          tr.train_number,
+          tr.source,
+          tr.destination,
+          tr.base_fare,
+          u.name AS passenger_name
        FROM tickets t
        JOIN trains tr ON t.train_id = tr.id
        JOIN users u ON t.user_id = u.id
@@ -85,90 +128,12 @@ const getMyTickets = async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("getMyTickets error:", err);
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// ----------------- Get Ticket by PNR -----------------
-const getTicketByPNR = async (req, res) => {
-  try {
-    const { pnr } = req.params;
-
-    const [rows] = await pool.query(
-      `SELECT 
-          t.id,
-          t.pnr,
-          t.train_id,
-          t.source,
-          t.destination,
-          t.travel_date,
-          t.seat_number,
-          t.status,
-          tr.name AS train_name,
-          tr.train_number,
-          tr.base_fare,
-          u.name AS passenger_name
-       FROM tickets t
-       JOIN trains tr ON t.train_id = tr.id
-       JOIN users u ON t.user_id = u.id
-       WHERE t.pnr = ?`,
-      [pnr]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({ message: "PNR not found" });
-    }
-
-    res.json(rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to search PNR" });
-  }
-};
-
-// ----------------- Cancel Ticket -----------------
-const cancelTicket = async (req, res) => {
-  try {
-    const ticketId = req.params.id;
-    const userId = req.user.id;
-
-    const [rows] = await pool.query(
-      "SELECT * FROM tickets WHERE id = ? AND user_id = ?",
-      [ticketId, userId]
-    );
-
-    if (rows.length === 0)
-      return res.status(404).json({ message: "Ticket not found" });
-
-    const ticket = rows[0];
-
-    if (ticket.status === "CANCELLED")
-      return res.status(400).json({ message: "Ticket already cancelled" });
-
-    if (!["PAID", "BOOKED", "PENDING"].includes(ticket.status)) {
-      return res.status(400).json({ message: "Ticket cannot be cancelled" });
-    }
-
-    await pool.query(
-      "UPDATE seats SET is_booked = 0 WHERE train_id = ? AND seat_number = ? AND travel_date = ?",
-      [ticket.train_id, ticket.seat_number, ticket.travel_date]
-    );
-
-    await pool.query("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?", [
-      ticketId,
-    ]);
-
-    res.json({ message: "Ticket cancelled" });
-  } catch (err) {
-    console.error("cancelTicket error:", err);
-    res.status(500).json({ message: "Failed to cancel ticket" });
+    res.status(500).json({ error: "Failed to fetch user tickets" });
   }
 };
 
 module.exports = {
   reserveTicket,
   getTicketById,
-  getMyTickets,
-  getTicketByPNR,
-  cancelTicket,
+  getMyTickets
 };
