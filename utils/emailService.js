@@ -1,8 +1,8 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || "smtp.elasticemail.com",
-  port: process.env.EMAIL_PORT || 2525,
+  host: "smtp.elasticemail.com",
+  port: 2525,
   secure: false,
   auth: {
     user: process.env.EMAIL_USER,
@@ -12,15 +12,14 @@ const transporter = nodemailer.createTransport({
 
 exports.sendEmail = async (to, subject, html) => {
   try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-      to,
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: process.env.EMAIL_USER, 
       subject,
       html
     });
-    console.log("Email sent:", info.messageId);
+    console.log("Email sent successfully");
   } catch (err) {
     console.error("Email sending error:", err);
-    throw err;
   }
 };
