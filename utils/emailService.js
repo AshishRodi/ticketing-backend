@@ -1,24 +1,24 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.elasticemail.com",
-  port: 2525,
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
   secure: false,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
 });
 
 exports.sendEmail = async (to, subject, html) => {
   try {
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_USER, 
+      from: process.env.FROM_EMAIL,
+      to: to,
       subject,
-      html
+      html,
     });
-    console.log("Email sent successfully");
+    console.log("Email sent successfully via Brevo!");
   } catch (err) {
     console.error("Email sending error:", err);
   }
